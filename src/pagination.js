@@ -177,7 +177,7 @@ class Pagination {
 
       let docs = await this.Model.aggregate(aggregationPipelineWithPagination);
       if (Boolean(this.search)) {
-        docs = this.find(docs, this.search);
+        docs = this.filterResults(docs, this.search);
       }
       return docs.map(doc => ({ node: doc, cursor: doc._id }));
     };
