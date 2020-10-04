@@ -1,6 +1,5 @@
 const deepMerge = require('deepmerge');
 const ObjectId = require("mongoose").Types.ObjectId;
-const { getNestedValue } = require("./utils");
 
 class Pagination {
   /**
@@ -64,17 +63,32 @@ class Pagination {
   /**
    *
    * Filter Mongoose results that contains specified string
-   * @param results Mongoose results.
-   * @param search  string to find (supports regex)
+   * @param results     Mongoose results.
+   * @param search      string to find (supports regex)
+   * @param pagination  pagination object
    *
    * @return Mongoose results
    */
-  filterResults(results, search) {
+  filterResults(results, search, pagination) {
     let regex = new RegExp(search);
+    let afterCursorModelCount = (Boolean(pagination) && Boolean(pagination.after)) ? -1 : 0;
 
     results = results.filter(function(result) {
+      if (Boolean(pagination) && afterCursorModelCount == pagination.first) {
+        return false;
+      }
+      if (Boolean(pagination) && Boolean(pagination.after) && afterCursorModelCount === -1) {
+        if (result._id == pagination.after) {
+          afterCursorModelCount += 1;
+        }
+        return false;
+      }
+      
       for (let value of Object.values(result)) {
         if (regex.exec(value)) {
+          if (Boolean(pagination)) {
+            afterCursorModelCount += 1;
+          }
           return true;
         }
       }
@@ -133,7 +147,7 @@ class Pagination {
     return this.promises.model;
   }
 
-  async aggregationAddPagination(aggregationPipeline, pagination) {
+  async aggregationAddPagination(aggregationPipeline) {
     let aggregationPipelineWithPagination = aggregationPipeline.slice();
 
     // Set after cursor.
@@ -173,11 +187,13 @@ class Pagination {
    */
   getEdges() {
     const run = async () => {
-      let aggregationPipelineWithPagination = await this.aggregationAddPagination(this.aggregationPipeline, this.pagination);
-
-      let docs = await this.Model.aggregate(aggregationPipelineWithPagination);
-      if (Boolean(this.search)) {
-        docs = this.filterResults(docs, this.search);
+      let docs;
+      if (!Boolean(this.search)) {
+        let aggregationPipelineWithPagination = await this.aggregationAddPagination(this.aggregationPipeline);
+        docs = await this.Model.aggregate(aggregationPipelineWithPagination);
+      } else {
+        docs = await this.Model.aggregate(this.aggregationPipeline);
+        docs = this.filterResults(docs, this.search, this.pagination);
       }
       return docs.map(doc => ({ node: doc, cursor: doc._id }));
     };
