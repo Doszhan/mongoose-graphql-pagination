@@ -36,14 +36,7 @@ class Pagination {
     // Search programmatically later (Azure Cosmos DB compatibility).
     this.search = search;
 
-    // Set after cursor.
-    if (Boolean(pagination.after)) {
-      this.aggregationPipeline.push({
-        $match: {
-          _id: { $gt: ObjectId(pagination.after) }
-        }
-      });
-    }
+    this.pagination = pagination;
 
     for (let filter of filters) {
       this.aggregationPipeline.push(
@@ -56,6 +49,7 @@ class Pagination {
     }
 
     // Set sorting.
+    this.sort = sort;
     if (Boolean(sort.field) && Boolean(sort.order)) {
       this.aggregationPipeline.push(
         {
@@ -65,12 +59,28 @@ class Pagination {
         }
       );
     }
+  }
 
-    // Set page limit (per page).
-    this.perPage = pagination.first || 25;
-    this.aggregationPipeline.push({
-      $limit: this.perPage
+  /**
+   *
+   * Filter Mongoose results that contains specified string
+   * @param results Mongoose results.
+   * @param search  string to find (supports regex)
+   *
+   * @return Mongoose results
+   */
+  filterResults(results, search) {
+    let regex = new RegExp(search);
+
+    results = results.filter(function(result) {
+      for (let value of Object.values(result)) {
+        if (regex.exec(value)) {
+          return true;
+        }
+      }
+      return false;
     });
+    return results;
   }
 
   /**
@@ -81,10 +91,10 @@ class Pagination {
    */
   getTotalCount() {
     const run = async () => {
-      let aggregationPipelineNoPagination = this.aggregationPipeline.slice(0, -1).filter(item => !Boolean(getNestedValue(item, '$match._id.$gt')));
+      let aggregationPipelineNoPagination = this.aggregationPipeline.slice();
       if (Boolean(this.search)) {
         const results = await this.Model.aggregate(aggregationPipelineNoPagination);
-        return this.find(results, this.search).length;
+        return this.filterResults(results, this.search).length;
       }
       aggregationPipelineNoPagination.push({
         $count: "count"
@@ -100,13 +110,73 @@ class Pagination {
   }
 
   /**
+   * @private
+   * @param {string} id
+   * @param {object} fields
+   * @return {Promise}
+   */
+  findCursorModel(id, fields) {
+    const run = async () => {
+      let aggregationPipelineFindOne = this.aggregationPipeline.slice();
+      aggregationPipelineFindOne.push({
+        $match: {
+          _id: ObjectId(id)
+        }
+      });
+
+      const results = await this.Model.aggregate(aggregationPipelineFindOne);
+      if (results.length === 0) throw new Error(`No record found for ID '${id}'`);
+      return results[0];
+    };
+    if (!this.promises.model) {
+      this.promises.model = run();
+    }
+    return this.promises.model;
+  }
+
+  async aggregationAddPagination(aggregationPipeline, pagination) {
+    let aggregationPipelineWithPagination = aggregationPipeline.slice();
+
+    // Set after cursor.
+    if (Boolean(this.pagination.after)) {
+      const cursorModel = await this.findCursorModel(this.pagination.after, { [ this.sort.field ]: 1 });
+      const orderDirection = this.sort.order == 1 ? '$gt' : '$lt';
+
+      let ors = [];
+      if (Boolean(this.sort.field) && Boolean(this.sort.order)) {
+        ors.push({
+          [ this.sort.field ]: { [ orderDirection ]: cursorModel[this.sort.field] }
+        });
+      }
+      ors.push({
+        _id: { $gt: ObjectId(this.pagination.after) }
+      });
+      aggregationPipelineWithPagination.push({
+        $match: {
+          $or: ors
+        }
+      });
+    }
+
+    // Set page limit (per page).
+    this.perPage = this.pagination.first || 25;
+    aggregationPipelineWithPagination.push({
+      $limit: this.perPage
+    });
+
+    return aggregationPipelineWithPagination;
+  }
+
+  /**
    * Gets the document edges for the current limit and sort.
    *
    * @return {Promise}
    */
   getEdges() {
     const run = async () => {
-      let docs = await this.Model.aggregate(this.aggregationPipeline);
+      let aggregationPipelineWithPagination = await this.aggregationAddPagination(this.aggregationPipeline, this.pagination);
+
+      let docs = await this.Model.aggregate(aggregationPipelineWithPagination);
       if (Boolean(this.search)) {
         docs = this.find(docs, this.search);
       }
@@ -143,7 +213,7 @@ class Pagination {
    */
   async hasNextPage() {
     const run = async () => {
-      let aggregationPipelineNoPerPage = this.aggregationPipeline.slice(0, -1);
+      let aggregationPipelineNoPerPage = this.aggregationPipeline.slice();
       aggregationPipelineNoPerPage.push({
         $count: "count"
       });
@@ -155,28 +225,6 @@ class Pagination {
       this.promises.nextPage = run();
     }
     return this.promises.nextPage;
-  }
-
-  /**
-   *
-   * Filter Mongoose results that contains specified string
-   * @param results Mongoose results.
-   * @param search  string to find (supports regex)
-   *
-   * @return Mongoose results
-   */
-  find(results, search) {
-    let regex = new RegExp(search);
-
-    results = results.filter(function(result) {
-      for (let value of Object.values(result)) {
-        if (regex.exec(value)) {
-          return true;
-        }
-      }
-      return false;
-    });
-    return results;
   }
 }
 
