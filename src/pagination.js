@@ -112,10 +112,9 @@ class Pagination {
   /**
    * @private
    * @param {string} id
-   * @param {object} fields
    * @return {Promise}
    */
-  findCursorModel(id, fields) {
+  findCursorModel(id) {
     const run = async () => {
       let aggregationPipelineFindOne = this.aggregationPipeline.slice();
       aggregationPipelineFindOne.push({
@@ -139,7 +138,7 @@ class Pagination {
 
     // Set after cursor.
     if (Boolean(this.pagination.after)) {
-      const cursorModel = await this.findCursorModel(this.pagination.after, { [ this.sort.field ]: 1 });
+      const cursorModel = await this.findCursorModel(this.pagination.after);
       const orderDirection = this.sort.order == 1 ? '$gt' : '$lt';
 
       let ors = [];
