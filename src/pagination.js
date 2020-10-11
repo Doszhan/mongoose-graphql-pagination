@@ -30,7 +30,7 @@ class Pagination {
     this.Model = Model;
 
     // Set base aggregation pipeline.
-    this.aggregationPipeline = baseAggregationPipeline;
+    this.aggregationPipeline = baseAggregationPipeline.slice();
 
     // Search programmatically later (Azure Cosmos DB compatibility).
     this.search = search;
