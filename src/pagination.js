@@ -70,7 +70,7 @@ class Pagination {
    * @return Mongoose results
    */
   filterResults(results, search, pagination) {
-    let regex = new RegExp(search);
+    let regex = new RegExp(search, 'i');
     let afterCursorModelCount = (Boolean(pagination) && Boolean(pagination.after)) ? -1 : 0;
 
     results = results.filter(function(result) {
