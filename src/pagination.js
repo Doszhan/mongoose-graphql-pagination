@@ -41,7 +41,7 @@ class Pagination {
       this.aggregationPipeline.push(
         {
           $match: {
-            [ filter.field ]: filter.value
+            [ filter.field ]: { $in: filter.value }
           },
         }
       );
