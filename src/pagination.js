@@ -113,6 +113,9 @@ class Pagination {
       aggregationPipelineNoPagination.push({
         $count: "count"
       });
+      // remove $project pipeline to speed up little bit
+      aggregationPipelineNoPagination = aggregationPipelineNoPagination.filter(a => Object.keys(a)[0] !== '$project' );
+      
       const countResults = await this.Model.aggregate(aggregationPipelineNoPagination);
       const count = (countResults.length > 0) ? countResults[0]["count"] : 0;
       return count;
@@ -131,7 +134,7 @@ class Pagination {
   findCursorModel(id) {
     const run = async () => {
       let aggregationPipelineFindOne = this.aggregationPipeline.slice();
-      aggregationPipelineFindOne.push({
+      aggregationPipelineFindOne.unshift({
         $match: {
           _id: ObjectId(id)
         }
@@ -147,12 +150,12 @@ class Pagination {
     return this.promises.model;
   }
 
-  async aggregationAddPagination(aggregationPipeline) {
+  async aggregationAddPagination(aggregationPipeline, after) {
     let aggregationPipelineWithPagination = aggregationPipeline.slice();
 
     // Set after cursor.
-    if (Boolean(this.pagination.after)) {
-      const cursorModel = await this.findCursorModel(this.pagination.after);
+    if (Boolean(after)) {
+      const cursorModel = await this.findCursorModel(after);
       const orderDirection = this.sort.order == 1 ? '$gt' : '$lt';
 
       let ors = [];
@@ -162,7 +165,7 @@ class Pagination {
         });
       }
       ors.push({
-        _id: { $gt: ObjectId(this.pagination.after) }
+        _id: { $gt: ObjectId(after) }
       });
       aggregationPipelineWithPagination.push({
         $match: {
@@ -189,7 +192,7 @@ class Pagination {
     const run = async () => {
       let docs;
       if (!Boolean(this.search)) {
-        let aggregationPipelineWithPagination = await this.aggregationAddPagination(this.aggregationPipeline);
+        let aggregationPipelineWithPagination = await this.aggregationAddPagination(this.aggregationPipeline, this.pagination.after);
         docs = await this.Model.aggregate(aggregationPipelineWithPagination);
       } else {
         docs = await this.Model.aggregate(this.aggregationPipeline);
@@ -228,13 +231,9 @@ class Pagination {
    */
   async hasNextPage() {
     const run = async () => {
-      let aggregationPipelineNoPerPage = this.aggregationPipeline.slice();
-      aggregationPipelineNoPerPage.push({
-        $count: "count"
-      });
-      const countResults = await this.Model.aggregate(aggregationPipelineNoPerPage);
-      const count = (countResults.length > 0) ? countResults[0]["count"] : 0;
-      return count > this.perPage;
+      let aggregationPipelineWithNextPage = await this.aggregationAddPagination(this.aggregationPipeline, (await this.getEndCursor())._id);
+      const docs = await this.Model.aggregate(aggregationPipelineWithNextPage);
+      return (docs.length > 0) ? true : false;
     };
     if (!this.promises.nextPage) {
       this.promises.nextPage = run();
